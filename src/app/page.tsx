@@ -8,9 +8,11 @@ interface Proposal {
   description: string;
   yes_votes: number;
   no_votes: number;
+  total_voting_power: number;
   state: string;
   start_time: number;
   end_time: number;
+  timelock_end: number;
 }
 
 interface GovernanceMetrics {
@@ -29,6 +31,10 @@ export default function Home() {
   const [walletAddress, setWalletAddress] = useState('');
   const [selectedProposal, setSelectedProposal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createForm, setCreateForm] = useState({ title: '', description: '', duration: '7' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [ws, setWs] = useState<WebSocket | null>(null);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -36,7 +42,39 @@ export default function Home() {
     fetchProposals();
     fetchMetrics();
     checkWalletConnection();
+    connectWebSocket();
   }, []);
+
+  const connectWebSocket = () => {
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3000/ws';
+    const websocket = new WebSocket(wsUrl);
+
+    websocket.onopen = () => {
+      console.log('WebSocket connected');
+    };
+
+    websocket.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      
+      if (message.type === 'proposal_update') {
+        fetchProposals(); // Refresh proposals on update
+      } else if (message.type === 'vote_cast') {
+        fetchProposals(); // Refresh proposals on vote
+        fetchMetrics(); // Refresh metrics
+      }
+    };
+
+    websocket.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    websocket.onclose = () => {
+      console.log('WebSocket disconnected, attempting to reconnect...');
+      setTimeout(connectWebSocket, 5000);
+    };
+
+    setWs(websocket);
+  };
 
   const fetchProposals = async () => {
     try {
@@ -85,6 +123,62 @@ export default function Home() {
       }
     } catch (error) {
       console.error('Error connecting wallet:', error);
+    }
+  };
+
+  const createProposal = async () => {
+    if (!walletConnected) {
+      alert('Please connect your wallet first');
+      return;
+    }
+
+    if (!createForm.title || !createForm.description || !createForm.duration) {
+      alert('Please fill in all fields');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      // This would interact with the smart contract in production
+      const durationInSeconds = parseInt(createForm.duration) * 24 * 60 * 60; // Convert days to seconds
+      
+      // Mock proposal creation - replace with actual contract call
+      const newProposal = {
+        id: Date.now(),
+        title: createForm.title,
+        description: createForm.description,
+        yes_votes: 0,
+        no_votes: 0,
+        total_voting_power: 0,
+        state: 'Active',
+        start_time: Math.floor(Date.now() / 1000),
+        end_time: Math.floor(Date.now() / 1000) + durationInSeconds,
+        timelock_end: Math.floor(Date.now() / 1000) + durationInSeconds + 86400, // 1 day timelock
+      };
+      
+      // Send to backend
+      await fetch(`${API_URL}/api/webhooks/proposal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          proposal_id: newProposal.id,
+          event: 'created',
+          data: newProposal,
+        }),
+      });
+      
+      // Reset form and close modal
+      setCreateForm({ title: '', description: '', duration: '7' });
+      setShowCreateModal(false);
+      
+      // Refresh proposals
+      fetchProposals();
+      alert('Proposal created successfully!');
+    } catch (error) {
+      console.error('Error creating proposal:', error);
+      alert('Failed to create proposal');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -154,7 +248,15 @@ export default function Home() {
 
         {/* Proposals Section */}
         <div className="mb-8">
-          <h2 className="text-2xl font-bold text-white mb-6">Governance Proposals</h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-white">Governance Proposals</h2>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold transition-all"
+            >
+              + Create Proposal
+            </button>
+          </div>
           
           {loading ? (
             <div className="text-center py-12">
@@ -246,6 +348,69 @@ export default function Home() {
           )}
         </div>
       </main>
+
+      {/* Create Proposal Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-xl p-8 max-w-lg w-full mx-4 border border-purple-500/20">
+            <h3 className="text-2xl font-bold text-white mb-6">Create New Proposal</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-purple-300 text-sm font-medium mb-2">Title</label>
+                <input
+                  type="text"
+                  value={createForm.title}
+                  onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-700 border border-purple-500/20 rounded-lg text-white placeholder-purple-300/50 focus:outline-none focus:border-purple-500"
+                  placeholder="Enter proposal title"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-purple-300 text-sm font-medium mb-2">Description</label>
+                <textarea
+                  value={createForm.description}
+                  onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+                  rows={4}
+                  className="w-full px-4 py-3 bg-slate-700 border border-purple-500/20 rounded-lg text-white placeholder-purple-300/50 focus:outline-none focus:border-purple-500 resize-none"
+                  placeholder="Enter proposal description"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-purple-300 text-sm font-medium mb-2">Voting Duration (days)</label>
+                <input
+                  type="number"
+                  value={createForm.duration}
+                  onChange={(e) => setCreateForm({ ...createForm, duration: e.target.value })}
+                  min="1"
+                  max="30"
+                  className="w-full px-4 py-3 bg-slate-700 border border-purple-500/20 rounded-lg text-white placeholder-purple-300/50 focus:outline-none focus:border-purple-500"
+                  placeholder="7"
+                />
+              </div>
+            </div>
+            
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                disabled={isSubmitting}
+                className="flex-1 px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-semibold transition-all disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={createProposal}
+                disabled={isSubmitting}
+                className="flex-1 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold transition-all disabled:opacity-50"
+              >
+                {isSubmitting ? 'Creating...' : 'Create Proposal'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
