@@ -1,31 +1,20 @@
-# beardswap-Gang-Governance-Frontend
+# beardswap Gang Governance Frontend
 
-The DAO Governance Interface for the beardswap Gang network, built with Next.js 14 and Tailwind CSS.
+The DAO Governance Interface for the beardswap Gang network, built with Next.js 14 (App Router), Tailwind CSS, and TypeScript.
 
 ## Overview
 
-This is the frontend application for the beardswap Gang DAO Governance platform. It provides:
-
-- **Dashboard**: View all governance proposals and their current status
-- **Voting Interface**: Cast votes on active proposals using the Freighter wallet
-- **Governance Analytics**: Real-time metrics on proposal outcomes and participation
-- **Wallet Integration**: Seamless connection to Stellar Freighter wallet
-
-## Features
-
-- Modern, responsive UI with Tailwind CSS
-- Real-time proposal tracking and updates
-- Secure wallet connection via Freighter
-- Vote progress visualization
-- Governance metrics dashboard
-- Dark theme with purple accent colors
+- **Dashboard** — view all governance proposals and their current status
+- **Voting Interface** — cast votes on active proposals, signed by the connected Freighter wallet
+- **Governance Analytics** — real-time metrics on proposal outcomes and participation
+- **Wallet Integration** — connect via the Stellar Freighter browser extension
 
 ## Local Setup
 
 ### Prerequisites
-- Node.js 18 or higher
-- npm or yarn
-- Freighter wallet extension installed in your browser
+- Node.js 18+
+- The [Freighter](https://freighter.app) wallet browser extension
+- The Fluxora-Backend API running (see below) — this frontend has no fallback data source
 
 ### Installation
 
@@ -35,11 +24,11 @@ npm install
 
 ### Configuration
 
-Create a `.env.local` file:
-
-```env
-NEXT_PUBLIC_API_URL=http://localhost:3000
+```bash
+cp .env.local.example .env.local
 ```
+
+Then set `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_WS_URL` to point at your backend. There's no baked-in `localhost:3000` fallback in the API client — if these aren't set you'll get a console warning rather than a silent failure.
 
 ### Development
 
@@ -47,57 +36,79 @@ NEXT_PUBLIC_API_URL=http://localhost:3000
 npm run dev
 ```
 
-The application will be available at `http://localhost:3000`.
-
-### Production Build
+### Production build
 
 ```bash
 npm run build
 npm start
 ```
 
-## Architecture
+### Docker
 
-### File Structure
+```bash
+docker build \
+  --build-arg NEXT_PUBLIC_API_URL=https://api.example.com \
+  --build-arg NEXT_PUBLIC_WS_URL=wss://api.example.com/ws \
+  -t beardswap-governance-frontend .
+docker run -p 3000:3000 beardswap-governance-frontend
+```
+
+`NEXT_PUBLIC_*` values are inlined into the client JS at build time, so they must be passed as `--build-arg`s, not just set at `docker run` time.
+
+## Architecture
 
 ```
 src/
 ├── app/
-│   └── page.tsx          # Main dashboard and voting interface
+│   ├── layout.tsx        # Root layout, wraps app in ToastProvider
+│   ├── page.tsx           # Dashboard — composes the components below
+│   └── globals.css
+├── components/
+│   ├── Header.tsx              # Wallet connect button
+│   ├── MetricsGrid.tsx         # Governance metrics cards
+│   ├── ProposalList.tsx        # Loading / error / empty states + list
+│   ├── ProposalCard.tsx        # Single proposal, vote buttons
+│   ├── CreateProposalModal.tsx # New-proposal form
+│   └── Toast.tsx               # Toast notification system
+├── hooks/
+│   ├── useWallet.ts       # Freighter connection state
+│   └── useProposals.ts    # Data fetching + WebSocket live updates
 └── lib/
-    └── freighter.ts              # Freighter wallet integration utilities
+    ├── api.ts             # Typed API client (proposals, metrics, votes)
+    ├── freighter.ts       # Freighter wallet integration
+    └── format.ts          # Time/percentage formatting helpers
 ```
 
-### Key Components
+## Wallet & Voting Flow
 
-**Dashboard (`page.tsx`)**
-- Displays all governance proposals
-- Shows voting progress with visual bars
-- Provides voting buttons for active proposals
-- Displays governance metrics
+Freighter integration goes through the official `@stellar/freighter-api` package — the extension does not inject any `window.freighter` global.
 
-**Freighter Integration (`lib/freighter.ts`)**
-- Wallet connection utilities
-- Transaction signing functions
-- Network configuration for Soroban
+Votes and proposal creation follow a **build → sign → submit** pattern rather than sending arbitrary client-supplied data to the backend:
 
-## Wallet Connection
+1. Frontend calls `POST /api/votes/build` (or `/api/proposals/build`) with the intent (proposal ID, vote choice, etc.)
+2. Backend, which holds the actual Soroban contract binding, returns an **unsigned transaction XDR**
+3. Frontend asks Freighter to sign it (the user approves in the extension)
+4. Frontend calls `POST /api/votes/submit` (or `/api/proposals/submit`) with the **signed** XDR
+5. Backend submits it to the network and returns the updated proposal
 
-The app uses the Stellar Freighter wallet for:
+### Backend endpoints this frontend expects
 
-- Connecting user wallets
-- Signing transactions for voting
-- Managing public keys
+| Method | Path                      | Body                                              | Returns              |
+|--------|---------------------------|----------------------------------------------------|-----------------------|
+| GET    | `/api/proposals`          | —                                                  | `{ proposals: Proposal[] }` |
+| GET    | `/api/analytics/metrics`  | —                                                  | `GovernanceMetrics`   |
+| POST   | `/api/proposals/build`    | `{ title, description, durationDays, creator }`    | `{ xdr }`             |
+| POST   | `/api/proposals/submit`   | `{ signedXdr }`                                    | `{ proposal }`        |
+| POST   | `/api/votes/build`        | `{ proposalId, voter, support }`                   | `{ xdr }`             |
+| POST   | `/api/votes/submit`       | `{ signedXdr }`                                    | `{ proposal }`        |
 
-Users must have the Freighter extension installed to interact with the DAO.
+If these endpoints don't exist yet on the backend, voting and proposal creation will fail with a toast error (they degrade gracefully — the dashboard and metrics still load).
 
-## API Integration
+## Known Gaps / Next Steps
 
-The frontend communicates with the backend API at `/api/proposals` and `/api/analytics/metrics` to fetch:
-
-- Proposal data and status
-- Voting metrics and analytics
-- Real-time governance statistics
+- Backend `/build` and `/submit` endpoints above need to be implemented against the actual Soroban contract.
+- No automated tests yet.
+- `npm audit` still reports some Next.js advisories that require a Next 15 major upgrade to fully clear (14.2.35 is the latest patched 14.x release).
 
 ## License
 
