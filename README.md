@@ -1,6 +1,6 @@
 # beardswap Gang Governance Frontend
 
-The DAO Governance Interface for the beardswap Gang network, built with Next.js 14 (App Router), Tailwind CSS, and TypeScript.
+The DAO Governance Interface for the beardswap Gang network, built with Next.js 15 (App Router), React 19, Tailwind CSS, and TypeScript.
 
 ## Overview
 
@@ -41,6 +41,25 @@ npm run dev
 ```bash
 npm run build
 npm start
+```
+
+### Testing
+
+```bash
+# Run unit tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run tests with coverage
+npm run test:coverage
+
+# Run E2E tests
+npm run test:e2e
+
+# Run E2E tests with UI
+npm run test:e2e:ui
 ```
 
 ### Docker
@@ -107,8 +126,9 @@ If these endpoints don't exist yet on the backend, voting and proposal creation 
 ## Known Gaps / Next Steps
 
 - Backend `/build` and `/submit` endpoints above need to be implemented against the actual Soroban contract.
-- No automated tests yet.
-- `npm audit` still reports some Next.js advisories that require a Next 15 major upgrade to fully clear (14.2.35 is the latest patched 14.x release).
+- Unit tests added for utilities and components - expand coverage for hooks and API layer.
+- E2E tests added for basic functionality - expand to cover wallet connect and voting flows.
+- CI/CD pipeline configured with GitHub Actions for lint, test, build, and E2E testing.
 
 ## License
 
